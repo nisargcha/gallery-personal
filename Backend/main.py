@@ -10,11 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-    cred = credentials.Certificate(os.getenv('GOOGLE_APPLICATION_CREDENTIALS'))
-    firebase_admin.initialize_app(cred)
-else:
-    firebase_admin.initialize_app()
+firebase_admin.initialize_app()
 
 app = Flask(__name__)
 CORS(app)
