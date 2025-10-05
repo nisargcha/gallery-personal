@@ -256,7 +256,7 @@ async function fetchPhotos() {
             container.appendChild(deleteBtn);
             gallery.appendChild(container);
         });
-    } catch (error) { console.error("Error fetching media:", error); gallery.innerHTML = '<p>Could not load media.</p>'; }
+    } catch (error) { console.error("Error fetching media:", error); gallery.innerHTML = 'Could not load media.'; }
 }
 
 async function uploadFile() {
