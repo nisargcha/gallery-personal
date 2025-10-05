@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Album</title>
+    
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+</head>
+<body>
+
+    <div id="login-view" class="auth-container">
+        <h1>Photo Album</h1>
+        <p>Please sign in to continue.</p>
+        <button id="google-signin-btn">Sign in with Google</button>
+    </div>
+
+    <div id="app-view" class="app-container" style="display: none;">
+        <div class="sidebar">
+            <h2>Albums <button id="signout-btn">Sign Out</button></h2>
+            <ul id="folderList" class="folder-list"></ul>
+            <hr>
+            <h3>Create New Album</h3>
+            <input type="text" id="newFolderName" placeholder="Album Name">
+            <button id="create-folder-btn">Create</button>
+        </div>
+        <div class="main-content">
+             <h1 id="albumTitle">Select an Album</h1>
+             <div id="uploadSection" style="display: none;">
+                 <h3>Upload to <span id="uploadAlbumName"></span></h3>
+                 <input type="file" id="fileInput" accept="image/*,video/*" multiple>
+                 <button id="upload-file-btn">Upload</button>
+                 <p id="status"></p>
+             </div>
+             <div id="gallery"></div>
+        </div>
+    </div>
+    
+    <div id="lightbox-modal" class="modal" style="display: none;">
+        <span id="modal-close" class="modal-close-btn">&times;</span>
+        <span class="modal-nav prev" id="modal-prev">&lsaquo;</span>
+        <span class="modal-nav next" id="modal-next">&rsaquo;</span>
+        <img id="lightbox-img" class="modal-content" style="display: none;">
+        <video id="lightbox-video" class="modal-content" style="display: none;" controls></video>
+        <button id="modal-download" class="modal-download-btn">Download</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
