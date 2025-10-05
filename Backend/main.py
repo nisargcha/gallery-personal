@@ -75,7 +75,7 @@ def get_photos():
 
     for blob in blobs:
   
-        if not blob.name.endswith('.gkeep') and blob.content_type and blob.content_type.startswith('image/'):
+        if blob.content_type and (blob.content_type.startswith('image/') or blob.content_type.startswith('video/')):
             url = blob.generate_signed_url(
                 version="v4",
                 expiration=datetime.timedelta(hours=1),
