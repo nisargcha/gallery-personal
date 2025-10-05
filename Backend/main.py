@@ -16,8 +16,10 @@ app = Flask(__name__)
 CORS(app)
 
 BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
+SIGNING_SERVICE_ACCOUNT = os.environ.get('SIGNING_SERVICE_ACCOUNT_EMAIL') 
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET_NAME)
+
 
 
 def auth_required(f):
@@ -76,6 +78,7 @@ def get_photos():
                 version="v4",
                 expiration=datetime.timedelta(hours=1),
                 method="GET",
+                service_account_email=SIGNING_SERVICE_ACCOUNT
             )
             photos_data.append({'filename': blob.name, 'url': url})
         
@@ -114,7 +117,8 @@ def generate_upload_url():
         version="v4",
         expiration=datetime.timedelta(minutes=15),
         method="PUT",
-        content_type=data.get('contentType', 'application/octet-stream')
+        content_type=data.get('contentType', 'application/octet-stream'),
+        service_account_email=SIGNING_SERVICE_ACCOUNT
     )
     return jsonify({'url': url})
 
