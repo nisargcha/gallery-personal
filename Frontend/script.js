@@ -6,7 +6,7 @@ const firebaseConfig = window.firebaseConfig;
 firebase.initializeApp(firebaseConfig);
 
 // --- GLOBAL VARIABLES & CONSTANTS ---
-const BACKEND_URL = 'http://127.0.0.1:8080' || 'https://photo-gallery-service-913570853508.us-east1.run.app'; // Change to your Cloud Run URL when deployed
+const BACKEND_URL = 'https://photo-gallery-service-913570853508.us-east1.run.app'; // Change to your Cloud Run URL when deployed
 let currentFolder = null;
 let idToken = null;
 let currentGalleryFiles = [];
