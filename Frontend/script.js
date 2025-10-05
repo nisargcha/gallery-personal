@@ -2,23 +2,24 @@
 // PASTE YOUR FIREBASE CONFIGURATION OBJECT HERE
 // ====================================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyAwLWsqP1JqIhg9bxBTr5QnHFHczzVpKw8",
-  authDomain: "my-gallery-2645.firebaseapp.com",
-  projectId: "my-gallery-2645",
-  storageBucket: "my-gallery-2645.firebasestorage.app",
-  messagingSenderId: "913570853508",
-  appId: "1:913570853508:web:3f1b3d431fd60a601108d1",
-  measurementId: "G-PZM8XZ4JEQ"
+  apiKey: FIREBASE_API_KEY,
+  authDomain: FIREBASE_AUTH_DOMAIN,
+  projectId: FIREBASE_PROJECT_ID,
+  storageBucket: FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: FIREBASE_MESSAGING_SENDER_ID,
+  appId: FIREBASE_APP_ID,
+  measurementId: MEASUREMENT_ID
 };
 
 firebase.initializeApp(firebaseConfig);
 
 // --- GLOBAL VARIABLES & CONSTANTS ---
-const BACKEND_URL = 'http://127.0.0.1:8080'; // Change to your Cloud Run URL when deployed
+const BACKEND_URL = 'http://127.0.0.1:8080' || 'https://photo-gallery-service-913570853508.us-east1.run.app'; // Change to your Cloud Run URL when deployed
 let currentFolder = null;
 let idToken = null;
 let currentGalleryFiles = [];
 let currentLightboxIndex = 0;
+let uiMode = 'signIn'; // 'signIn' or 'signUp'
 
 // --- DOM ELEMENTS ---
 const loginView = document.getElementById('login-view');
@@ -28,17 +29,50 @@ const lightboxImg = document.getElementById('lightbox-img');
 const lightboxVideo = document.getElementById('lightbox-video');
 const downloadBtn = document.getElementById('modal-download');
 const auth = firebase.auth();
-
+const authError = document.getElementById('auth-error');
+const authForm = document.getElementById('auth-form');
+const authTitle = document.getElementById('auth-title');
+const authSubmitBtn = document.getElementById('auth-submit-btn');
+const authToggleBtn = document.getElementById('auth-toggle');
 
 // --- AUTHENTICATION ---
+function handleAuthError(error) {
+    console.error("Authentication Error:", error);
+    let message = 'An unexpected error occurred. Please try again.';
+    switch (error.code) {
+        case 'auth/wrong-password':
+            message = 'Incorrect password. Please try again.';
+            break;
+        case 'auth/user-not-found':
+            message = 'No account found with this email address.';
+            break;
+        case 'auth/invalid-email':
+            message = 'Please enter a valid email address.';
+            break;
+        case 'auth/email-already-in-use':
+            message = 'An account already exists with this email address.';
+            break;
+        case 'auth/weak-password':
+            message = 'The password must be at least 6 characters long.';
+            break;
+    }
+    authError.innerText = message;
+    authError.style.display = 'block';
+}
+
+function clearAuthError() {
+    authError.innerText = '';
+    authError.style.display = 'none';
+}
+
 auth.onAuthStateChanged(user => {
     if (user) {
         loginView.style.display = 'none';
         appView.style.display = 'flex';
+        clearAuthError();
         user.getIdToken().then(token => {
             idToken = token;
-            // Fetch initial folders when user logs in
-            fetchFolders(); 
+            fetchFolders();
         });
     } else {
         idToken = null;
@@ -48,22 +82,48 @@ auth.onAuthStateChanged(user => {
 });
 
 function signInWithGoogle() {
+    clearAuthError();
     const provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithPopup(provider).catch(error => console.error("Google Sign-in Error:", error));
+    auth.signInWithPopup(provider).catch(handleAuthError);
+}
+
+function handleEmailPasswordSubmit(event) {
+    event.preventDefault();
+    clearAuthError();
+    const email = document.getElementById('email-input').value;
+    const password = document.getElementById('password-input').value;
+
+    if (uiMode === 'signIn') {
+        auth.signInWithEmailAndPassword(email, password).catch(handleAuthError);
+    } else {
+        auth.createUserWithEmailAndPassword(email, password).catch(handleAuthError);
+    }
+}
+
+function toggleUiMode() {
+    clearAuthError();
+    if (uiMode === 'signIn') {
+        uiMode = 'signUp';
+        authTitle.innerText = 'Create Account';
+        authSubmitBtn.innerText = 'Sign Up';
+        authToggleBtn.innerText = 'Have an account? Sign In';
+    } else {
+        uiMode = 'signIn';
+        authTitle.innerText = 'Sign In';
+        authSubmitBtn.innerText = 'Sign In';
+        authToggleBtn.innerText = 'Need an account? Sign Up';
+    }
 }
 
 function signOut() {
     auth.signOut();
 }
 
-
-// --- LIGHTBOX MODAL ---
+// --- LIGHTBOX MODAL --- (No changes below this line, kept for completeness)
 function updateLightboxContent() {
     const media = currentGalleryFiles[currentLightboxIndex];
     if (!media) return;
-
     const isVideo = media.filename.endsWith('.mp4') || media.filename.endsWith('.webm') || media.filename.endsWith('.mov');
-    
     if (isVideo) {
         lightboxImg.style.display = 'none';
         lightboxVideo.style.display = 'block';
@@ -127,7 +187,6 @@ async function forceDownload(url, filename) {
     }
 }
 
-
 // --- API & APP LOGIC ---
 async function apiFetch(endpoint, options = {}) {
     if (!idToken) { alert("Authentication token is missing."); signOut(); return Promise.reject("Unauthorized"); }
@@ -180,7 +239,7 @@ async function fetchPhotos() {
     gallery.innerHTML = '<p>Loading media...</p>';
     try {
         const response = await apiFetch(`/get-photos?folder=${encodeURIComponent(currentFolder)}`);
-        currentGalleryFiles = await response.json(); 
+        currentGalleryFiles = await response.json();
         gallery.innerHTML = currentGalleryFiles.length === 0 ? '<p>No photos or videos yet.</p>' : '';
         currentGalleryFiles.forEach((media, index) => {
             const container = document.createElement('div');
@@ -238,39 +297,32 @@ async function deletePhoto(filename) {
     } catch (error) { console.error("Error deleting photo:", error); }
 }
 
-
 // --- EVENT LISTENERS ---
 window.onload = function() {
     document.getElementById('google-signin-btn').onclick = signInWithGoogle;
+    authForm.addEventListener('submit', handleEmailPasswordSubmit);
+    authToggleBtn.onclick = toggleUiMode;
     document.getElementById('signout-btn').onclick = signOut;
     document.getElementById('create-folder-btn').onclick = createFolder;
     document.getElementById('upload-file-btn').onclick = uploadFile;
-    
     document.getElementById('modal-close').onclick = closeLightbox;
     lightbox.onclick = function(event) {
         if (event.target === lightbox) {
             closeLightbox();
         }
     };
-    
     document.getElementById('modal-prev').onclick = showPreviousMedia;
     document.getElementById('modal-next').onclick = showNextMedia;
-    
     document.getElementById('modal-download').onclick = () => {
         const currentMedia = currentGalleryFiles[currentLightboxIndex];
         const filename = currentMedia.filename.split('/').pop();
         forceDownload(currentMedia.url, filename);
     };
-
     document.addEventListener('keydown', function (e) {
         if (lightbox.style.display === 'flex') {
-            if (e.key === 'ArrowRight') {
-                showNextMedia();
-            } else if (e.key === 'ArrowLeft') {
-                showPreviousMedia();
-            } else if (e.key === 'Escape') {
-                closeLightbox();
-            }
+            if (e.key === 'ArrowRight') showNextMedia();
+            else if (e.key === 'ArrowLeft') showPreviousMedia();
+            else if (e.key === 'Escape') closeLightbox();
         }
     });
 };

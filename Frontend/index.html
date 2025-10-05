@@ -13,10 +13,22 @@
 <body>
 
     <div id="login-view" class="auth-container">
-        <h1>Photo Album</h1>
-        <p>Please sign in to continue.</p>
+        <h1 id="auth-title">Sign In</h1>
+        <p>to continue to your Photo Album</p>
+
+        <form id="auth-form">
+            <input type="email" id="email-input" placeholder="Email" required>
+            <input type="password" id="password-input" placeholder="Password" required>
+            <p id="auth-error"></p>
+            <button type="submit" id="auth-submit-btn">Sign In</button>
+        </form>
+        
+        <button id="auth-toggle">Need an account? Sign Up</button>
+        
+        <hr>
         <button id="google-signin-btn">Sign in with Google</button>
     </div>
+
 
     <div id="app-view" class="app-container" style="display: none;">
         <div class="sidebar">
