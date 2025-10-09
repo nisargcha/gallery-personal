@@ -9,8 +9,57 @@
     
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script type="module" src="auth.js"></script>
+    <script type="module" src="script.js"></script>
+
 </head>
 <body>
+<!-- Message Display -->
+<div id="message" class="message" style="display: none;"></div>
+
+<!-- Authentication Section -->
+<div id="auth-section" class="auth-section">
+    <!-- Login Container -->
+    <div id="login-container" class="auth-container">
+        <h2>Sign In</h2>
+        <form id="login-form">
+            <input type="email" id="login-email" placeholder="Email" required>
+            <input type="password" id="login-password" placeholder="Password" required>
+            <button type="submit">Sign In</button>
+        </form>
+        <p>Don't have an account? <a href="#" id="show-signup">Sign up</a></p>
+    </div>
+    
+    <!-- Signup Container -->
+    <div id="signup-container" class="auth-container" style="display: none;">
+        <h2>Sign Up</h2>
+        <form id="signup-form">
+            <input type="email" id="signup-email" placeholder="Email" required>
+            <input type="password" id="signup-password" placeholder="Password (min 6 characters)" required>
+            <button type="submit">Sign Up</button>
+        </form>
+        <p>Already have an account? <a href="#" id="show-login">Sign in</a></p>
+    </div>
+</div>
+
+<!-- Main Content (Gallery) -->
+<div id="main-content" style="display: none;">
+    <div class="header">
+        <h1>Photo Gallery</h1>
+        <div class="header-actions">
+            <button id="create-folder-btn" class="action-btn">➕ New Album</button>
+            <button id="upload-photos-btn" class="action-btn" style="display: none;">📤 Upload Photos</button>
+            <button id="back-to-folders-btn" class="action-btn" style="display: none;">⬅️ Back to Albums</button>
+            <button id="signout-btn" class="signout-btn">Sign Out</button>
+        </div>
+    </div>
+    
+    <!-- Hidden file input -->
+    <input type="file" id="file-input" multiple accept="image/*,video/*" style="display: none;">
+    
+    <div id="folders-container" class="folders-container"></div>
+    <div id="photos-container" class="photos-container"></div>
+</div>
 
     <div id="login-view" class="auth-container">
         <h1 id="auth-title">Sign In</h1>
