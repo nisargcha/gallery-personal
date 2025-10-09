@@ -13,7 +13,7 @@
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/Frontend/index.html",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
