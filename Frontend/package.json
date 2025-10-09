@@ -2,6 +2,6 @@
   "name": "gallery-personal",
   "version": "1.0.0",
   "scripts": {
-    "build": "cd Frontend && node generate-config.js"
+    "build": "node generate-config.js"
   }
 }
