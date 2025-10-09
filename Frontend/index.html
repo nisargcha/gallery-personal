@@ -4,53 +4,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo Album</title>
-    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="message" class="message" style="display: none;"></div>
 
-    <div id="auth-section" class="auth-section">
+    <div id="auth-view">
         <div class="auth-container">
-            <div id="login-container">
-                <h2>Login</h2>
-                <form id="login-form">
-                    <input type="email" id="login-email" placeholder="Email" required>
-                    <input type="password" id="login-password" placeholder="Password" required>
-                    <button type="submit">Login</button>
-                </form>
-                <p>No account? <a href="#" id="show-signup">Sign up</a></p>
-            </div>
-            <div id="signup-container" style="display: none;">
-                <h2>Sign Up</h2>
-                <form id="signup-form">
-                    <input type="email" id="signup-email" placeholder="Email" required>
-                    <input type="password" id="signup-password" placeholder="Password" required>
-                    <button type="submit">Sign Up</button>
-                </form>
-                <p>Already have an account? <a href="#" id="show-login">Login</a></p>
-            </div>
-             <hr>
-             <button id="google-signin-btn">Sign in with Google</button>
+            <h1 id="auth-title">Sign In</h1>
+            <p>to continue to your Photo Album</p>
+
+            <form id="auth-form">
+                <input type="email" id="email-input" placeholder="Email" required>
+                <input type="password" id="password-input" placeholder="Password" required>
+                <p id="auth-error"></p>
+                <button type="submit" id="auth-submit-btn">Sign In</button>
+            </form>
+            
+            <button id="auth-toggle">Need an account? Sign Up</button>
+            
+            <hr>
+            <button id="google-signin-btn">Sign in with Google</button>
         </div>
     </div>
 
 
-    <div id="main-content" style="display: none;">
-        <div class="header">
-            <h1>My Photo Gallery</h1>
-            <div class="header-actions">
-                <button id="create-folder-btn" class="action-btn">Create Album</button>
-                <button id="upload-photos-btn" class="action-btn" style="display: none;">Upload Photos</button>
-                <input type="file" id="file-input" multiple style="display: none;">
-                <button id="back-to-folders-btn" class="action-btn" style="display: none;">Back to Albums</button>
-                <button id="signout-btn">Sign Out</button>
-            </div>
+    <div id="app-view" class="app-container" style="display: none;">
+        <div class="sidebar">
+            <h2>Albums <button id="signout-btn">Sign Out</button></h2>
+            <ul id="folderList" class="folder-list"></ul>
+            <hr>
+            <h3>Create New Album</h3>
+            <input type="text" id="newFolderName" placeholder="Album Name">
+            <button id="create-folder-btn">Create</button>
         </div>
-        <div id="folders-container" class="folders-container">
-            </div>
-        <div id="photos-container" class="photos-container" style="display: none;">
-            </div>
+        <div class="main-content">
+             <h1 id="albumTitle">Select an Album</h1>
+             <div id="uploadSection" style="display: none;">
+                 <h3>Upload to <span id="uploadAlbumName"></span></h3>
+                 <input type="file" id="fileInput" accept="image/*,video/*" multiple>
+                 <button id="upload-file-btn">Upload</button>
+                 <p id="status"></p>
+             </div>
+             <div id="gallery"></div>
+        </div>
     </div>
     
     <div id="lightbox-modal" class="modal" style="display: none;">
@@ -64,6 +61,7 @@
 
     <script src="config.js"></script>
     <script type="module" src="auth.js"></script>
+    <script type="module" src="ui.js"></script> 
     <script type="module" src="script.js"></script>
 </body>
 </html>

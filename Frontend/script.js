@@ -1,12 +1,72 @@
 // Import authentication functions
 import { signIn, signUp, signOutUser, onAuthStateChange, getIdToken, signInWithGoogle } from './auth.js';
 
+// ============================================================================
+// UI Functions (No separate ui.js file needed)
+// ============================================================================
+
+function showAuthView() {
+    document.getElementById('auth-view').style.display = 'block';
+    document.getElementById('app-view').style.display = 'none';
+}
+
+function showAppView() {
+    document.getElementById('auth-view').style.display = 'none';
+    document.getElementById('app-view').style.display = 'flex';
+}
+
+function showMessage(message, type) {
+    const messageDiv = document.getElementById('message');
+    if (!messageDiv) return;
+
+    if (!message || type === 'clear') {
+        messageDiv.style.display = 'none';
+        return;
+    }
+
+    messageDiv.textContent = message;
+    messageDiv.className = `message ${type}`;
+    messageDiv.style.display = 'block';
+
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => {
+            if (messageDiv.textContent === message) {
+                messageDiv.style.display = 'none';
+            }
+        }, 3000);
+    }
+}
+
+function toggleAuthForm(isLogin) {
+    const title = document.getElementById('auth-title');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const toggleBtn = document.getElementById('auth-toggle');
+
+    if (isLogin) {
+        title.textContent = 'Sign In';
+        submitBtn.textContent = 'Sign In';
+        toggleBtn.textContent = 'Need an account? Sign Up';
+    } else {
+        title.textContent = 'Sign Up';
+        submitBtn.textContent = 'Sign Up';
+        toggleBtn.textContent = 'Have an account? Sign In';
+    }
+}
+
+
+// ============================================================================
+// Main Application Logic
+// ============================================================================
+
 // Configuration
 const API_BASE_URL = 'https://photo-gallery-service-913570853508.us-east1.run.app';
 
-// DOM Elements
-let authSection, mainContent, loginForm, signupForm, signOutBtn, googleSignInBtn;
+// DOM Elements & State
+let authForm, signOutBtn, googleSignInBtn, authToggleBtn, createFolderBtn, newFolderNameInput, fileInput, uploadFileBtn;
 let currentFolder = null;
+let isLoginView = true;
+let currentPhotos = [];
+let currentPhotoIndex = 0;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,94 +76,48 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initializeElements() {
-    authSection = document.getElementById('auth-section');
-    mainContent = document.getElementById('main-content');
-    loginForm = document.getElementById('login-form');
-    signupForm = document.getElementById('signup-form');
+    authForm = document.getElementById('auth-form');
     signOutBtn = document.getElementById('signout-btn');
     googleSignInBtn = document.getElementById('google-signin-btn');
+    authToggleBtn = document.getElementById('auth-toggle');
+    createFolderBtn = document.getElementById('create-folder-btn');
+    newFolderNameInput = document.getElementById('newFolderName');
+    fileInput = document.getElementById('fileInput');
+    uploadFileBtn = document.getElementById('upload-file-btn');
 }
 
 function setupEventListeners() {
-    // Login Form
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            await handleLogin(email, password);
-        });
+    if (authForm) {
+        authForm.addEventListener('submit', handleAuthFormSubmit);
     }
-
-    // Signup Form
-    if (signupForm) {
-        signupForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('signup-email').value;
-            const password = document.getElementById('signup-password').value;
-            await handleSignup(email, password);
-        });
-    }
-
-    // Sign Out Button
     if (signOutBtn) {
         signOutBtn.addEventListener('click', handleSignOut);
     }
-    
-    // Google Sign In Button
     if (googleSignInBtn) {
         googleSignInBtn.addEventListener('click', handleGoogleSignIn);
     }
-
-    // Toggle between login and signup
-    const showSignupLink = document.getElementById('show-signup');
-    const showLoginLink = document.getElementById('show-login');
-    
-    if (showSignupLink) {
-        showSignupLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            document.getElementById('login-container').style.display = 'none';
-            document.getElementById('signup-container').style.display = 'block';
+    if (authToggleBtn) {
+        authToggleBtn.addEventListener('click', () => {
+            isLoginView = !isLoginView;
+            toggleAuthForm(isLoginView);
         });
     }
-    
-    if (showLoginLink) {
-        showLoginLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            document.getElementById('signup-container').style.display = 'none';
-            document.getElementById('login-container').style.display = 'block';
-        });
-    }
-
-    // Create Folder Button
-    const createFolderBtn = document.getElementById('create-folder-btn');
     if (createFolderBtn) {
-        createFolderBtn.addEventListener('click', showCreateFolderDialog);
+        createFolderBtn.addEventListener('click', handleCreateFolder);
     }
-
-    // Upload Photos Button
-    const uploadPhotosBtn = document.getElementById('upload-photos-btn');
-    if (uploadPhotosBtn) {
-        uploadPhotosBtn.addEventListener('click', () => {
-            document.getElementById('file-input').click();
-        });
+    if (uploadFileBtn) {
+        uploadFileBtn.addEventListener('click', () => fileInput.click());
     }
-
-    // File Input Change
-    const fileInput = document.getElementById('file-input');
-    if (fileInput) {
+     if (fileInput) {
         fileInput.addEventListener('change', handleFileSelect);
     }
 
-    // Back to Folders Button
-    const backBtn = document.getElementById('back-to-folders-btn');
-    if (backBtn) {
-        backBtn.addEventListener('click', () => {
-            currentFolder = null;
-            loadGallery();
-        });
-    }
-
+    // Modal listeners
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('modal-prev').addEventListener('click', showPrevPhoto);
+    document.getElementById('modal-next').addEventListener('click', showNextPhoto);
+    document.getElementById('modal-download').addEventListener('click', downloadCurrentImage);
+    
     // Setup drag and drop
     setupDragAndDrop();
 }
@@ -111,21 +125,34 @@ function setupEventListeners() {
 function setupAuthObserver() {
     onAuthStateChange((state) => {
         if (state.signedIn) {
-            showMainContent();
+            showAppView();
             loadGallery();
         } else {
-            showAuthSection();
+            showAuthView();
         }
     });
+}
+
+// ============================================================================
+// Authentication Handlers
+// ============================================================================
+
+async function handleAuthFormSubmit(e) {
+    e.preventDefault();
+    const email = document.getElementById('email-input').value;
+    const password = document.getElementById('password-input').value;
+    
+    if (isLoginView) {
+        await handleLogin(email, password);
+    } else {
+        await handleSignup(email, password);
+    }
 }
 
 async function handleLogin(email, password) {
     showMessage('Signing in...', 'info');
     const result = await signIn(email, password);
-    
-    if (result.success) {
-        showMessage('Successfully signed in!', 'success');
-    } else {
+    if (!result.success) {
         showMessage(`Login failed: ${result.error}`, 'error');
     }
 }
@@ -135,13 +162,9 @@ async function handleSignup(email, password) {
         showMessage('Password must be at least 6 characters', 'error');
         return;
     }
-    
     showMessage('Creating account...', 'info');
     const result = await signUp(email, password);
-    
-    if (result.success) {
-        showMessage('Account created! Signing you in...', 'success');
-    } else {
+    if (!result.success) {
         showMessage(`Signup failed: ${result.error}`, 'error');
     }
 }
@@ -156,23 +179,9 @@ async function handleSignOut() {
 async function handleGoogleSignIn() {
     showMessage('Signing in with Google...', 'info');
     const result = await signInWithGoogle();
-
-    if (result.success) {
-        showMessage('Successfully signed in with Google!', 'success');
-    } else {
+    if (!result.success) {
         showMessage(`Google sign-in failed: ${result.error}`, 'error');
     }
-}
-
-
-function showAuthSection() {
-    if (authSection) authSection.style.display = 'flex';
-    if (mainContent) mainContent.style.display = 'none';
-}
-
-function showMainContent() {
-    if (authSection) authSection.style.display = 'none';
-    if (mainContent) mainContent.style.display = 'block';
 }
 
 // ============================================================================
@@ -181,143 +190,45 @@ function showMainContent() {
 
 async function apiFetch(endpoint, options = {}) {
     const token = await getIdToken();
-    
-    if (!token) {
-        throw new Error('Not authenticated');
-    }
+    if (!token) throw new Error('Not authenticated');
 
-    const defaultOptions = {
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        }
-    };
-
-    const mergedOptions = {
-        ...defaultOptions,
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
         headers: {
-            ...defaultOptions.headers,
-            ...(options.headers || {})
-        }
-    };
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            ...options.headers,
+        },
+    });
 
-    try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, mergedOptions);
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `API error: ${response.status}`);
-        }
-        
-        return await response.json();
-    } catch (error) {
-        console.error('API fetch error:', error);
-        throw error;
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `API error: ${response.status}`);
     }
+    return response.json();
 }
 
-async function fetchFolders() {
-    try {
-        return await apiFetch('/get-folders');
-    } catch (error) {
-        console.error('Error fetching folders:', error);
-        throw error;
-    }
-}
-
-async function fetchPhotos(folderName) {
-    try {
-        // FIXED: Changed from POST to GET with query parameter
-        return await apiFetch(`/get-photos?folder=${encodeURIComponent(folderName)}`);
-    } catch (error) {
-        console.error('Error fetching photos:', error);
-        throw error;
-    }
-}
-
-async function createFolder(folderName) {
-    try {
-        return await apiFetch('/create-folder', {
-            method: 'POST',
-            body: JSON.stringify({ folder: folderName })
-        });
-    } catch (error) {
-        console.error('Error creating folder:', error);
-        throw error;
-    }
-}
-
-async function generateUploadUrl(filename, folder, contentType) {
-    try {
-        return await apiFetch('/generate-upload-url', {
-            method: 'POST',
-            body: JSON.stringify({ filename, folder, contentType })
-        });
-    } catch (error) {
-        console.error('Error generating upload URL:', error);
-        throw error;
-    }
-}
+const fetchFolders = () => apiFetch('/get-folders');
+const fetchPhotos = (folderName) => apiFetch(`/get-photos?folder=${encodeURIComponent(folderName)}`);
+const createFolder = (folderName) => apiFetch('/create-folder', { method: 'POST', body: JSON.stringify({ folder: folderName }) });
+const generateUploadUrl = (filename, folder, contentType) => apiFetch('/generate-upload-url', { method: 'POST', body: JSON.stringify({ filename, folder, contentType }) });
+const deletePhoto = (filename) => apiFetch('/delete-photo', { method: 'DELETE', body: JSON.stringify({ filename }) });
 
 async function uploadFileToSignedUrl(signedUrl, file, contentType) {
-    try {
-        const response = await fetch(signedUrl, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': contentType
-            },
-            body: file
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Upload failed: ${response.status}`);
-        }
-        
-        return true;
-    } catch (error) {
-        console.error('Error uploading file:', error);
-        throw error;
-    }
-}
-
-async function deletePhoto(filename) {
-    try {
-        return await apiFetch('/delete-photo', {
-            method: 'DELETE',
-            body: JSON.stringify({ filename })
-        });
-    } catch (error) {
-        console.error('Error deleting photo:', error);
-        throw error;
-    }
-}
-
-async function deleteFolder(folderName) {
-    try {
-        return await apiFetch('/delete-folder', {
-            method: 'DELETE',
-            body: JSON.stringify({ folder: folderName })
-        });
-    } catch (error) {
-        console.error('Error deleting folder:', error);
-        throw error;
-    }
+    const response = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+    if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
 }
 
 // ============================================================================
-// UI Functions
+// Gallery & Photo Logic
 // ============================================================================
 
 async function loadGallery() {
     try {
-        showMessage('Loading folders...', 'info');
-        const data = await fetchFolders();
-        displayFolders(data.folders);
+        showMessage('Loading albums...', 'info');
+        const { folders } = await fetchFolders();
+        displayFolders(folders);
         showMessage('', 'clear');
-        
-        // Hide photo controls, show folder controls
-        toggleControls('folders');
     } catch (error) {
         handleAuthError(error);
     }
@@ -326,142 +237,84 @@ async function loadGallery() {
 async function loadPhotos(folderName) {
     try {
         currentFolder = folderName;
+        document.getElementById('albumTitle').textContent = folderName;
+        document.getElementById('uploadAlbumName').textContent = folderName;
+        document.getElementById('uploadSection').style.display = 'block';
+
         showMessage('Loading photos...', 'info');
-        const data = await fetchPhotos(folderName);
-        displayPhotos(data.photos);
+        const { photos } = await fetchPhotos(folderName);
+        currentPhotos = photos; // Store photos for lightbox
+        displayPhotos(photos);
         showMessage('', 'clear');
-        
-        // Show photo controls, hide folder controls
-        toggleControls('photos');
     } catch (error) {
         handleAuthError(error);
     }
 }
 
 function displayFolders(folders) {
-    const foldersContainer = document.getElementById('folders-container');
-    const photosContainer = document.getElementById('photos-container');
-    
-    if (!foldersContainer) return;
-    
-    // Show folders, hide photos
-    foldersContainer.style.display = 'grid';
-    if (photosContainer) photosContainer.style.display = 'none';
-    
-    foldersContainer.innerHTML = '';
-    
-    if (folders.length === 0) {
-        foldersContainer.innerHTML = '<p class="empty-message">No albums yet. Create your first album!</p>';
+    const folderList = document.getElementById('folderList');
+    folderList.innerHTML = '';
+    document.getElementById('albumTitle').textContent = 'Select an Album';
+    document.getElementById('uploadSection').style.display = 'none';
+    document.getElementById('gallery').innerHTML = '';
+
+    if (!folders || folders.length === 0) {
+        folderList.innerHTML = '<li>No albums yet.</li>';
         return;
     }
     
     folders.forEach(folder => {
-        const folderElement = document.createElement('div');
-        folderElement.className = 'folder-item';
-        folderElement.innerHTML = `
-            <i class="folder-icon">📁</i>
-            <span class="folder-name">${folder}</span>
-            <div class="folder-actions">
-                <button class="delete-btn" data-folder="${folder}" title="Delete album">🗑️</button>
-            </div>
-        `;
-        
-        // Click folder to open
-        folderElement.querySelector('.folder-name').addEventListener('click', () => loadPhotos(folder));
-        folderElement.querySelector('.folder-icon').addEventListener('click', () => loadPhotos(folder));
-        
-        // Delete button
-        folderElement.querySelector('.delete-btn').addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await handleDeleteFolder(folder);
-        });
-        
-        foldersContainer.appendChild(folderElement);
+        const li = document.createElement('li');
+        li.textContent = folder;
+        li.onclick = () => {
+            document.querySelectorAll('#folderList li').forEach(el => el.classList.remove('active'));
+            li.classList.add('active');
+            loadPhotos(folder);
+        };
+        folderList.appendChild(li);
     });
 }
 
 function displayPhotos(photos) {
-    const foldersContainer = document.getElementById('folders-container');
-    const photosContainer = document.getElementById('photos-container');
+    const gallery = document.getElementById('gallery');
+    gallery.innerHTML = '';
     
-    if (!photosContainer) return;
-    
-    // Hide folders, show photos
-    if (foldersContainer) foldersContainer.style.display = 'none';
-    photosContainer.style.display = 'grid';
-    
-    photosContainer.innerHTML = '';
-    
-    if (photos.length === 0) {
-        photosContainer.innerHTML = '<p class="empty-message">No photos in this album. Upload some!</p>';
+    if (!photos || photos.length === 0) {
+        gallery.innerHTML = '<p class="empty-message">No photos in this album. Upload some!</p>';
         return;
     }
     
-    photos.forEach(photo => {
-        const photoElement = document.createElement('div');
-        photoElement.className = 'photo-item';
+    photos.forEach((photo, index) => {
+        const mediaContainer = document.createElement('div');
+        mediaContainer.className = 'media-container';
+        mediaContainer.onclick = () => openModal(index);
+
+        const isVideo = photo.type.startsWith('video/');
+        const mediaElement = document.createElement(isVideo ? 'video' : 'img');
+        mediaElement.src = photo.url;
+        if (!isVideo) mediaElement.alt = photo.name;
         
-        const isVideo = photo.type && photo.type.startsWith('video/');
-        
-        photoElement.innerHTML = `
-            ${isVideo ? 
-                `<video src="${photo.url}" controls loading="lazy"></video>` :
-                `<img src="${photo.url}" alt="${photo.name}" loading="lazy">`
-            }
-            <div class="photo-info">
-                <p class="photo-name">${photo.name}</p>
-                <button class="delete-photo-btn" data-filename="${photo.filename}" title="Delete">🗑️</button>
-            </div>
-        `;
-        
-        // Delete button
-        photoElement.querySelector('.delete-photo-btn').addEventListener('click', async (e) => {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.innerHTML = '&times;';
+        deleteBtn.onclick = (e) => {
             e.stopPropagation();
-            await handleDeletePhoto(photo.filename, photo.name);
-        });
+            handleDeletePhoto(photo.filename, photo.name);
+        };
         
-        photosContainer.appendChild(photoElement);
+        mediaContainer.append(mediaElement, deleteBtn);
+        gallery.appendChild(mediaContainer);
     });
 }
 
-function toggleControls(view) {
-    const createFolderBtn = document.getElementById('create-folder-btn');
-    const uploadPhotosBtn = document.getElementById('upload-photos-btn');
-    const backBtn = document.getElementById('back-to-folders-btn');
+async function handleCreateFolder() {
+    const folderName = newFolderNameInput.value.trim();
+    if (!folderName) return showMessage('Please enter an album name.', 'error');
     
-    if (view === 'folders') {
-        if (createFolderBtn) createFolderBtn.style.display = 'inline-block';
-        if (uploadPhotosBtn) uploadPhotosBtn.style.display = 'none';
-        if (backBtn) backBtn.style.display = 'none';
-    } else if (view === 'photos') {
-        if (createFolderBtn) createFolderBtn.style.display = 'none';
-        if (uploadPhotosBtn) uploadPhotosBtn.style.display = 'inline-block';
-        if (backBtn) backBtn.style.display = 'inline-block';
-    }
-}
-
-// ============================================================================
-// Create Folder
-// ============================================================================
-
-function showCreateFolderDialog() {
-    const folderName = prompt('Enter album name:');
-    
-    if (!folderName) return;
-    
-    // Validate folder name
-    if (!/^[a-zA-Z0-9-_]+$/.test(folderName)) {
-        showMessage('Album name can only contain letters, numbers, hyphens, and underscores', 'error');
-        return;
-    }
-    
-    handleCreateFolder(folderName);
-}
-
-async function handleCreateFolder(folderName) {
     try {
         showMessage('Creating album...', 'info');
         await createFolder(folderName);
+        newFolderNameInput.value = '';
         showMessage('Album created successfully!', 'success');
         loadGallery();
     } catch (error) {
@@ -469,90 +322,66 @@ async function handleCreateFolder(folderName) {
     }
 }
 
-// ============================================================================
-// Upload Photos
-// ============================================================================
-
 async function handleFileSelect(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
-    
     await uploadFiles(files);
 }
 
 async function uploadFiles(files) {
-    if (!currentFolder) {
-        showMessage('Please select an album first', 'error');
-        return;
-    }
+    if (!currentFolder) return showMessage('Please select an album first.', 'error');
     
-    const fileArray = Array.from(files);
-    const totalFiles = fileArray.length;
-    let uploadedCount = 0;
-    let failedCount = 0;
+    const statusP = document.getElementById('status');
+    statusP.textContent = `Uploading ${files.length} file(s)...`;
     
-    showMessage(`Uploading ${totalFiles} file(s)...`, 'info');
-    
-    for (const file of fileArray) {
+    const uploadPromises = Array.from(files).map(async (file) => {
         try {
-            // Check file size (max 100MB)
-            if (file.size > 100 * 1024 * 1024) {
-                console.error(`File ${file.name} is too large (max 100MB)`);
-                failedCount++;
-                continue;
-            }
-            
-            // Get signed upload URL
             const { url } = await generateUploadUrl(file.name, currentFolder, file.type);
-            
-            // Upload file
             await uploadFileToSignedUrl(url, file, file.type);
-            
-            uploadedCount++;
-            showMessage(`Uploaded ${uploadedCount}/${totalFiles} files...`, 'info');
         } catch (error) {
             console.error(`Failed to upload ${file.name}:`, error);
-            failedCount++;
         }
-    }
+    });
+
+    await Promise.all(uploadPromises);
     
-    // Clear file input
-    document.getElementById('file-input').value = '';
+    fileInput.value = ''; // Clear the file input
+    statusP.textContent = `Upload complete!`;
     
-    // Show result
-    if (failedCount === 0) {
-        showMessage(`Successfully uploaded ${uploadedCount} file(s)!`, 'success');
-    } else {
-        showMessage(`Uploaded ${uploadedCount}, failed ${failedCount} file(s)`, 'error');
-    }
-    
-    // Reload photos
-    loadPhotos(currentFolder);
+    setTimeout(() => {
+        statusP.textContent = '';
+        loadPhotos(currentFolder);
+    }, 2000);
 }
 
 // ============================================================================
-// Drag and Drop Upload
+// Drag and Drop Upload [ADDED BACK]
 // ============================================================================
 
 function setupDragAndDrop() {
-    const photosContainer = document.getElementById('photos-container');
+    const galleryContainer = document.getElementById('gallery');
     
-    if (!photosContainer) return;
-    
-    photosContainer.addEventListener('dragover', (e) => {
+    galleryContainer.addEventListener('dragover', (e) => {
         e.preventDefault();
-        photosContainer.classList.add('drag-over');
+        e.stopPropagation();
+        if (currentFolder) { // Only show effect if a folder is selected
+            galleryContainer.classList.add('drag-over');
+        }
     });
     
-    photosContainer.addEventListener('dragleave', (e) => {
+    galleryContainer.addEventListener('dragleave', (e) => {
         e.preventDefault();
-        photosContainer.classList.remove('drag-over');
+        e.stopPropagation();
+        galleryContainer.classList.remove('drag-over');
     });
     
-    photosContainer.addEventListener('drop', async (e) => {
+    galleryContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
-        photosContainer.classList.remove('drag-over');
+        e.stopPropagation();
+        galleryContainer.classList.remove('drag-over');
         
+        if (!currentFolder) return; // Don't allow drop if no folder is selected
+
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
             await uploadFiles(files);
@@ -560,12 +389,9 @@ function setupDragAndDrop() {
     });
 }
 
-// ============================================================================
-// Delete Functions
-// ============================================================================
 
 async function handleDeletePhoto(filename, displayName) {
-    if (!confirm(`Delete "${displayName}"?`)) return;
+    if (!confirm(`Are you sure you want to delete "${displayName}"?`)) return;
     
     try {
         showMessage('Deleting photo...', 'info');
@@ -577,47 +403,71 @@ async function handleDeletePhoto(filename, displayName) {
     }
 }
 
-async function handleDeleteFolder(folderName) {
-    if (!confirm(`Delete album "${folderName}" and all its contents? This cannot be undone.`)) return;
-    
-    try {
-        showMessage('Deleting album...', 'info');
-        await deleteFolder(folderName);
-        showMessage('Album deleted successfully!', 'success');
-        loadGallery();
-    } catch (error) {
-        showMessage(`Failed to delete album: ${error.message}`, 'error');
-    }
-}
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
 function handleAuthError(error) {
     console.error('Authentication Error:', error);
     showMessage('Authentication error. Please sign in again.', 'error');
     handleSignOut();
 }
 
-function showMessage(message, type) {
-    const messageDiv = document.getElementById('message');
-    if (!messageDiv) return;
-    
-    if (type === 'clear') {
-        messageDiv.style.display = 'none';
-        return;
+// ============================================================================
+// Lightbox Modal Logic
+// ============================================================================
+
+function openModal(index) {
+    currentPhotoIndex = index;
+    updateModalContent();
+    document.getElementById('lightbox-modal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('lightbox-modal').style.display = 'none';
+    document.getElementById('lightbox-video').pause();
+}
+
+function showPrevPhoto() {
+    currentPhotoIndex = (currentPhotoIndex > 0) ? currentPhotoIndex - 1 : currentPhotos.length - 1;
+    updateModalContent();
+}
+
+function showNextPhoto() {
+    currentPhotoIndex = (currentPhotoIndex < currentPhotos.length - 1) ? currentPhotoIndex + 1 : 0;
+    updateModalContent();
+}
+
+function updateModalContent() {
+    if (currentPhotos.length === 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+    const img = document.getElementById('lightbox-img');
+    const video = document.getElementById('lightbox-video');
+
+    const isVideo = photo.type.startsWith('video/');
+    img.style.display = isVideo ? 'none' : 'block';
+    video.style.display = isVideo ? 'block' : 'none';
+
+    if (isVideo) {
+        video.src = photo.url;
+        video.play();
+    } else {
+        video.pause();
+        video.src = '';
+        img.src = photo.url;
     }
-    
-    messageDiv.textContent = message;
-    messageDiv.className = `message ${type}`;
-    messageDiv.style.display = 'block';
-    
-    if (type === 'success' || type === 'info') {
-        setTimeout(() => {
-            if (messageDiv.textContent === message) {
-                messageDiv.style.display = 'none';
-            }
-        }, 3000);
+}
+
+async function downloadCurrentImage() {
+    if (currentPhotos.length === 0) return;
+    const photo = currentPhotos[currentPhotoIndex];
+    try {
+        const response = await fetch(photo.url);
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = photo.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (error) {
+        console.error('Download failed:', error);
+        showMessage('Could not download file.', 'error');
     }
 }

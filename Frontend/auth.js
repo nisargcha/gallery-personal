@@ -5,9 +5,10 @@ import {
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword,
     signOut,
-    onAuthStateChanged 
+    onAuthStateChanged,
+    GoogleAuthProvider,
+    signInWithPopup
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-import { GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 // Wait for config to load from config.js
 function getFirebaseConfig() {
@@ -102,6 +103,8 @@ export function onAuthStateChange(callback) {
         }
     });
 }
+
+// Google Sign In
 export async function signInWithGoogle() {
     const provider = new GoogleAuthProvider();
     try {
@@ -114,5 +117,6 @@ export async function signInWithGoogle() {
         console.error('Google sign in error:', error.code, error.message);
         return { success: false, error: error.message };
     }
-}   
+}
+
 export { auth };
