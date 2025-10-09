@@ -4,6 +4,12 @@
 /node_modules
 /.pnp
 .pnp.js
+node_modules/
+.env
+.env.local
+Frontend/config.js
+config.js
+.vercel
 
 # Testing
 /coverage

@@ -8,17 +8,28 @@ import {
     onAuthStateChanged 
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
-const firebaseConfig = {
-  apiKey: FIREBASE_API_KEY,
-  authDomain: FIREBASE_AUTH_DOMAIN,
-  projectId: FIREBASE_PROJECT_ID,
-  storageBucket: FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: FIREBASE_MESSAGING_SENDER_ID,
-  appId: FIREBASE_APP_ID,
-  measurementId: MEASUREMENT_ID
-};
+// Wait for config to load from config.js
+function getFirebaseConfig() {
+    if (typeof window.firebaseConfig !== 'undefined') {
+        return window.firebaseConfig;
+    }
+    
+    // Fallback if config.js didn't load
+    console.error('Firebase config not found! Make sure config.js is loaded before auth.js');
+    return {
+        apiKey: "MISSING",
+        authDomain: "MISSING",
+        projectId: "MISSING",
+        storageBucket: "MISSING",
+        messagingSenderId: "MISSING",
+        appId: "MISSING"
+    };
+}
 
 // Initialize Firebase
+const firebaseConfig = getFirebaseConfig();
+console.log('Initializing Firebase with config:', firebaseConfig);
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
@@ -57,7 +68,6 @@ export async function signIn(email, password) {
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         console.log('User signed in:', userCredential.user.email);
-        // Get and store the ID token
         await getIdToken();
         return { success: true, user: userCredential.user };
     } catch (error) {
@@ -83,16 +93,13 @@ export async function signOutUser() {
 export function onAuthStateChange(callback) {
     return onAuthStateChanged(auth, async (user) => {
         if (user) {
-            // User is signed in
-            await getIdToken(); // Refresh token
+            await getIdToken();
             callback({ signedIn: true, user: user });
         } else {
-            // User is signed out
             currentIdToken = null;
             callback({ signedIn: false, user: null });
         }
     });
 }
 
-// Export auth instance
 export { auth };
