@@ -7,13 +7,13 @@
   "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/Frontend/index.html",
       "destination": "/"
     }
   ],
   "headers": [
     {
-      "source": "/Frontend/index.html",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
