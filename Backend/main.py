@@ -207,10 +207,8 @@ def get_photos():
                     url = blob.generate_signed_url(
                         version="v4",
                         expiration=datetime.timedelta(hours=1),
-                        method="GET",
-                        service_account_email=SIGNING_SERVICE_ACCOUNT,
-                        access_token=storage_client.credentials.token
-                    )
+                        method="GET"
+                        )
                     
                     photos_data.append({
                         'filename': blob.name,
