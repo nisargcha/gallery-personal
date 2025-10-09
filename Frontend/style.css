@@ -784,3 +784,21 @@ button:disabled {
     height: auto;
     border-radius: 5px;
 }
+#signout-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  width: auto;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  margin-left: auto;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all var(--transition-fast);
+}
+
+#signout-btn:hover {
+  background: var(--border-light);
+  color: var(--text-primary);
+}
