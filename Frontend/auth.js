@@ -7,6 +7,7 @@ import {
     signOut,
     onAuthStateChanged 
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 // Wait for config to load from config.js
 function getFirebaseConfig() {
@@ -101,5 +102,17 @@ export function onAuthStateChange(callback) {
         }
     });
 }
-
+export async function signInWithGoogle() {
+    const provider = new GoogleAuthProvider();
+    try {
+        const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        console.log('User signed in with Google:', user.email);
+        await getIdToken();
+        return { success: true, user: user };
+    } catch (error) {
+        console.error('Google sign in error:', error.code, error.message);
+        return { success: false, error: error.message };
+    }
+}   
 export { auth };

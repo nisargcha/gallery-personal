@@ -1,11 +1,11 @@
 // Import authentication functions
-import { signIn, signUp, signOutUser, onAuthStateChange, getIdToken } from './auth.js';
+import { signIn, signUp, signOutUser, onAuthStateChange, getIdToken, signInWithGoogle } from './auth.js';
 
 // Configuration
 const API_BASE_URL = 'https://photo-gallery-service-913570853508.us-east1.run.app';
 
 // DOM Elements
-let authSection, mainContent, loginForm, signupForm, signOutBtn;
+let authSection, mainContent, loginForm, signupForm, signOutBtn, googleSignInBtn;
 let currentFolder = null;
 
 // Initialize on page load
@@ -21,6 +21,7 @@ function initializeElements() {
     loginForm = document.getElementById('login-form');
     signupForm = document.getElementById('signup-form');
     signOutBtn = document.getElementById('signout-btn');
+    googleSignInBtn = document.getElementById('google-signin-btn');
 }
 
 function setupEventListeners() {
@@ -47,6 +48,11 @@ function setupEventListeners() {
     // Sign Out Button
     if (signOutBtn) {
         signOutBtn.addEventListener('click', handleSignOut);
+    }
+    
+    // Google Sign In Button
+    if (googleSignInBtn) {
+        googleSignInBtn.addEventListener('click', handleGoogleSignIn);
     }
 
     // Toggle between login and signup
@@ -146,6 +152,18 @@ async function handleSignOut() {
         showMessage('Signed out successfully', 'success');
     }
 }
+
+async function handleGoogleSignIn() {
+    showMessage('Signing in with Google...', 'info');
+    const result = await signInWithGoogle();
+
+    if (result.success) {
+        showMessage('Successfully signed in with Google!', 'success');
+    } else {
+        showMessage(`Google sign-in failed: ${result.error}`, 'error');
+    }
+}
+
 
 function showAuthSection() {
     if (authSection) authSection.style.display = 'flex';
@@ -595,9 +613,11 @@ function showMessage(message, type) {
     messageDiv.className = `message ${type}`;
     messageDiv.style.display = 'block';
     
-    if (type === 'success') {
+    if (type === 'success' || type === 'info') {
         setTimeout(() => {
-            messageDiv.style.display = 'none';
+            if (messageDiv.textContent === message) {
+                messageDiv.style.display = 'none';
+            }
         }, 3000);
     }
 }
