@@ -8,7 +8,7 @@ from google.cloud import storage
 import firebase_admin
 from firebase_admin import auth, credentials
 from dotenv import load_dotenv
-
+from google.oauth2 import service_account
 # Load environment variables
 load_dotenv()
 
@@ -60,12 +60,15 @@ if not BUCKET_NAME:
     raise ValueError("GCS_BUCKET_NAME must be set")
 
 # Initialize GCS Client
+# Initialize GCS Client using the Service Account Key
 try:
-    storage_client = storage.Client()
+    KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), 'service-account-key.json')
+    credentials = service_account.Credentials.from_service_account_file(KEY_FILE_PATH)
+    storage_client = storage.Client(credentials=credentials)
     bucket = storage_client.bucket(BUCKET_NAME)
-    logger.info(f"Connected to GCS bucket: {BUCKET_NAME}")
+    logger.info(f"Connected to GCS bucket: {BUCKET_NAME} using service account key.")
 except Exception as e:
-    logger.error(f"Failed to initialize GCS client: {str(e)}")
+    logger.error(f"Failed to initialize GCS client with key: {str(e)}")
     raise
 
 # ============================================================================

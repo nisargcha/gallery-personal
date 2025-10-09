@@ -24,7 +24,7 @@ config.js
 .env.development.local
 .env.test.local
 .env.production.local
-my-gallery-2645-6d1caabfa616.json
+service-account-key.json
 
 # Logs
 npm-debug.log*
