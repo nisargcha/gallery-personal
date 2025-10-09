@@ -78,6 +78,10 @@ def auth_required(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Allow OPTIONS requests to pass through for CORS preflight
+        if request.method == 'OPTIONS':
+            return f(*args, **kwargs)
+
         auth_header = request.headers.get('Authorization')
         
         if not auth_header or not auth_header.startswith('Bearer '):
@@ -161,7 +165,6 @@ def get_folders():
             'error': 'Failed to fetch folders',
             'message': str(e)
         }), 500
-
 # ============================================================================
 # Get Photos Endpoint - IMPROVED
 # ============================================================================
@@ -183,7 +186,7 @@ def get_photos():
                 'message': 'Folder name query parameter is required'
             }), 400
 
-        full_prefix = f"{user_id}/{folder_name}"
+        full_prefix = f"{user_id}/{folder_name}/" # Ensure trailing slash
         logger.info(f"Fetching photos from {full_prefix} for user {user_email}")
         
         photos_data = []
@@ -200,11 +203,13 @@ def get_photos():
                 blob.content_type.startswith('video/')
             ):
                 try:
+                    # This is the corrected way to generate a signed URL in Cloud Run
                     url = blob.generate_signed_url(
                         version="v4",
                         expiration=datetime.timedelta(hours=1),
                         method="GET",
-                        service_account_email=SIGNING_SERVICE_ACCOUNT
+                        service_account_email=SIGNING_SERVICE_ACCOUNT,
+                        access_token=storage_client.credentials.token
                     )
                     
                     photos_data.append({
@@ -293,7 +298,6 @@ def create_folder():
             'error': 'Failed to create folder',
             'message': str(e)
         }), 500
-
 # ============================================================================
 # Generate Upload URL Endpoint - IMPROVED
 # ============================================================================
@@ -333,7 +337,8 @@ def generate_upload_url():
             expiration=datetime.timedelta(minutes=15),
             method="PUT",
             content_type=content_type,
-            service_account_email=SIGNING_SERVICE_ACCOUNT
+            service_account_email=SIGNING_SERVICE_ACCOUNT,
+            access_token=storage_client.credentials.token
         )
         
         logger.info(f"Upload URL generated for {full_path} by user {user_email}")
@@ -350,7 +355,7 @@ def generate_upload_url():
             'error': 'Failed to generate upload URL',
             'message': str(e)
         }), 500
-
+    
 # ============================================================================
 # Delete Photo Endpoint - IMPROVED
 # ============================================================================
