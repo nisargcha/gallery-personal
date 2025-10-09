@@ -208,7 +208,7 @@ def get_photos():
                         version="v4",
                         expiration=datetime.timedelta(hours=1),
                         method="GET"
-                        )
+                    )
                     
                     photos_data.append({
                         'filename': blob.name,
@@ -334,9 +334,7 @@ def generate_upload_url():
             version="v4",
             expiration=datetime.timedelta(minutes=15),
             method="PUT",
-            content_type=content_type,
-            service_account_email=SIGNING_SERVICE_ACCOUNT,
-            access_token=storage_client.credentials.token
+            content_type=content_type
         )
         
         logger.info(f"Upload URL generated for {full_path} by user {user_email}")
