@@ -244,23 +244,6 @@ async function loadGallery() {
     }
 }
 
-async function loadPhotos(folderName) {
-    try {
-        currentFolder = folderName;
-        document.getElementById('albumTitle').textContent = folderName;
-        document.getElementById('uploadAlbumName').textContent = folderName;
-        document.getElementById('uploadSection').style.display = 'block';
-
-        showMessage('Loading photos...', 'info');
-        const { photos } = await fetchPhotos(folderName);
-        currentPhotos = photos; // Store photos for lightbox
-        displayPhotos(photos);
-        showMessage('', 'clear');
-    } catch (error) {
-        handleAuthError(error);
-    }
-}
-
 function displayFolders(folders) {
     const folderList = document.getElementById('folderList');
     folderList.innerHTML = '';
@@ -278,6 +261,7 @@ function displayFolders(folders) {
     folders.forEach(folder => {
         const li = document.createElement('li');
         li.textContent = folder;
+
         li.onclick = () => {
             document.querySelectorAll('#folderList li').forEach(el => el.classList.remove('active'));
             li.classList.add('active');
@@ -285,14 +269,36 @@ function displayFolders(folders) {
             currentFolder = folder;
             document.getElementById('albumTitle').textContent = folder;
             document.getElementById('uploadAlbumName').textContent = folder;
-            document.getElementById('uploadSection').style.display = 'none';
+            // Show upload section immediately when album selected
+            document.getElementById('uploadSection').style.display = 'block';
             document.getElementById('gallery').innerHTML = '';
+
             if (loadAllBtn) {
-                loadAllBtn.style.display = 'block'; // show load button
+                loadAllBtn.style.display = 'block'; // Show Load All button for photos
             }
         };
+
         folderList.appendChild(li);
     });
+}
+
+async function loadPhotos(folderName) {
+    try {
+        currentFolder = folderName;
+        document.getElementById('albumTitle').textContent = folderName;
+        document.getElementById('uploadAlbumName').textContent = folderName;
+
+        // Keep upload section visible on album select by removing this:
+        // document.getElementById('uploadSection').style.display = 'block';
+
+        showMessage('Loading photos...', 'info');
+        const { photos } = await fetchPhotos(folderName);
+        currentPhotos = photos; // Store photos for lightbox
+        displayPhotos(photos);
+        showMessage('', 'clear');
+    } catch (error) {
+        handleAuthError(error);
+    }
 }
 
 function displayPhotos(photos) {
