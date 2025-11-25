@@ -254,6 +254,10 @@ button:disabled {
   overflow-y: auto;
   margin-top: 1rem;
 }
+#show-private-btn:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
 
 .sidebar h2 {
   display: flex;
@@ -808,4 +812,21 @@ button:disabled {
 #signout-btn:hover {
   background: var(--border-light);
   color: var(--text-primary);
+}
+#load-all-btn {
+  display: block;
+  margin: 2rem auto;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  cursor: pointer;
+  transition: background-color 0.25s;
+}
+
+#load-all-btn:hover {
+  background: var(--primary);
+  color: white;
 }

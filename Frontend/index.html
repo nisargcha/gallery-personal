@@ -42,10 +42,22 @@
         <div class="sidebar-list">
             <ul id="folderList" class="folder-list"></ul>
         </div>
+                    <!-- Existing folderList UL in sidebar-list div remains -->
+
+            <button id="show-private-btn" style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.6; background: none; border: none; cursor: pointer;">
+            Private Albums
+            </button>
+
+            <div id="private-albums-section" style="display:none; margin-top: 1rem;">
+            <h3>Private Albums</h3>
+            <ul id="privateFolderList" class="folder-list"></ul>
+            </div>
+
         </div>
 
         <div class="main-content">
              <h1 id="albumTitle">Select an Album</h1>
+            <button id="load-all-btn" style="display:none;">Load All</button>
              <div id="uploadSection" style="display: none;">
                  <h3>Upload to <span id="uploadAlbumName"></span></h3>
                  <input type="file" id="fileInput" accept="image/*,video/*" multiple>

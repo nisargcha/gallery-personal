@@ -53,7 +53,6 @@ function toggleAuthForm(isLogin) {
     }
 }
 
-
 // ============================================================================
 // Main Application Logic
 // ============================================================================
@@ -62,7 +61,7 @@ function toggleAuthForm(isLogin) {
 const API_BASE_URL = 'https://photo-gallery-service-913570853508.us-east1.run.app';
 
 // DOM Elements & State
-let authForm, signOutBtn, googleSignInBtn, authToggleBtn, createFolderBtn, newFolderNameInput, fileInput, uploadFileBtn;
+let authForm, signOutBtn, googleSignInBtn, authToggleBtn, createFolderBtn, newFolderNameInput, fileInput, uploadFileBtn, loadAllBtn;
 let currentFolder = null;
 let isLoginView = true;
 let currentPhotos = [];
@@ -84,6 +83,7 @@ function initializeElements() {
     newFolderNameInput = document.getElementById('newFolderName');
     fileInput = document.getElementById('fileInput');
     uploadFileBtn = document.getElementById('upload-file-btn');
+    loadAllBtn = document.getElementById('load-all-btn');
 }
 
 function setupEventListeners() {
@@ -108,8 +108,18 @@ function setupEventListeners() {
     if (uploadFileBtn) {
         uploadFileBtn.addEventListener('click', () => fileInput.click());
     }
-     if (fileInput) {
+    if (fileInput) {
         fileInput.addEventListener('change', handleFileSelect);
+    }
+    if (loadAllBtn) {
+        loadAllBtn.addEventListener('click', () => {
+            if (!currentFolder) {
+                showMessage('Please select an album first.', 'error');
+                return;
+            }
+            loadPhotos(currentFolder);
+            loadAllBtn.style.display = 'none'; // hide after fetching
+        });
     }
 
     // Modal listeners
@@ -117,7 +127,7 @@ function setupEventListeners() {
     document.getElementById('modal-prev').addEventListener('click', showPrevPhoto);
     document.getElementById('modal-next').addEventListener('click', showNextPhoto);
     document.getElementById('modal-download').addEventListener('click', downloadCurrentImage);
-    
+
     // Setup drag and drop
     setupDragAndDrop();
 }
@@ -141,7 +151,7 @@ async function handleAuthFormSubmit(e) {
     e.preventDefault();
     const email = document.getElementById('email-input').value;
     const password = document.getElementById('password-input').value;
-    
+
     if (isLoginView) {
         await handleLogin(email, password);
     } else {
@@ -258,18 +268,28 @@ function displayFolders(folders) {
     document.getElementById('uploadSection').style.display = 'none';
     document.getElementById('gallery').innerHTML = '';
 
+    if (loadAllBtn) loadAllBtn.style.display = 'none';
+
     if (!folders || folders.length === 0) {
         folderList.innerHTML = '<li>No albums yet.</li>';
         return;
     }
-    
+
     folders.forEach(folder => {
         const li = document.createElement('li');
         li.textContent = folder;
         li.onclick = () => {
             document.querySelectorAll('#folderList li').forEach(el => el.classList.remove('active'));
             li.classList.add('active');
-            loadPhotos(folder);
+
+            currentFolder = folder;
+            document.getElementById('albumTitle').textContent = folder;
+            document.getElementById('uploadAlbumName').textContent = folder;
+            document.getElementById('uploadSection').style.display = 'none';
+            document.getElementById('gallery').innerHTML = '';
+            if (loadAllBtn) {
+                loadAllBtn.style.display = 'block'; // show load button
+            }
         };
         folderList.appendChild(li);
     });
@@ -278,12 +298,12 @@ function displayFolders(folders) {
 function displayPhotos(photos) {
     const gallery = document.getElementById('gallery');
     gallery.innerHTML = '';
-    
+
     if (!photos || photos.length === 0) {
         gallery.innerHTML = '<p class="empty-message">No photos in this album. Upload some!</p>';
         return;
     }
-    
+
     photos.forEach((photo, index) => {
         const mediaContainer = document.createElement('div');
         mediaContainer.className = 'media-container';
@@ -293,7 +313,7 @@ function displayPhotos(photos) {
         const mediaElement = document.createElement(isVideo ? 'video' : 'img');
         mediaElement.src = photo.url;
         if (!isVideo) mediaElement.alt = photo.name;
-        
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
         deleteBtn.innerHTML = '&times;';
@@ -301,7 +321,7 @@ function displayPhotos(photos) {
             e.stopPropagation();
             handleDeletePhoto(photo.filename, photo.name);
         };
-        
+
         mediaContainer.append(mediaElement, deleteBtn);
         gallery.appendChild(mediaContainer);
     });
@@ -310,7 +330,7 @@ function displayPhotos(photos) {
 async function handleCreateFolder() {
     const folderName = newFolderNameInput.value.trim();
     if (!folderName) return showMessage('Please enter an album name.', 'error');
-    
+
     try {
         showMessage('Creating album...', 'info');
         await createFolder(folderName);
@@ -330,10 +350,10 @@ async function handleFileSelect(event) {
 
 async function uploadFiles(files) {
     if (!currentFolder) return showMessage('Please select an album first.', 'error');
-    
+
     const statusP = document.getElementById('status');
     statusP.textContent = `Uploading ${files.length} file(s)...`;
-    
+
     const uploadPromises = Array.from(files).map(async (file) => {
         try {
             const { url } = await generateUploadUrl(file.name, currentFolder, file.type);
@@ -344,10 +364,10 @@ async function uploadFiles(files) {
     });
 
     await Promise.all(uploadPromises);
-    
+
     fileInput.value = ''; // Clear the file input
     statusP.textContent = `Upload complete!`;
-    
+
     setTimeout(() => {
         statusP.textContent = '';
         loadPhotos(currentFolder);
@@ -355,12 +375,12 @@ async function uploadFiles(files) {
 }
 
 // ============================================================================
-// Drag and Drop Upload [ADDED BACK]
+// Drag and Drop Upload
 // ============================================================================
 
 function setupDragAndDrop() {
     const galleryContainer = document.getElementById('gallery');
-    
+
     galleryContainer.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -368,18 +388,18 @@ function setupDragAndDrop() {
             galleryContainer.classList.add('drag-over');
         }
     });
-    
+
     galleryContainer.addEventListener('dragleave', (e) => {
         e.preventDefault();
         e.stopPropagation();
         galleryContainer.classList.remove('drag-over');
     });
-    
+
     galleryContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
         e.stopPropagation();
         galleryContainer.classList.remove('drag-over');
-        
+
         if (!currentFolder) return; // Don't allow drop if no folder is selected
 
         const files = e.dataTransfer.files;
@@ -389,10 +409,9 @@ function setupDragAndDrop() {
     });
 }
 
-
 async function handleDeletePhoto(filename, displayName) {
     if (!confirm(`Are you sure you want to delete "${displayName}"?`)) return;
-    
+
     try {
         showMessage('Deleting photo...', 'info');
         await deletePhoto(filename);
