@@ -1,511 +1,364 @@
 import os
+import re
 import datetime
 import logging
 from functools import wraps
-from flask import Flask, request, jsonify, g, abort
+
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from flask_limiter import Limiter
 from google.cloud import storage
+import google.auth
+from google.auth.transport.requests import Request
 import firebase_admin
-from firebase_admin import auth, credentials
+from firebase_admin import auth
 from dotenv import load_dotenv
-from google.oauth2 import service_account
-# Load environment variables
+
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Firebase Admin
+# ----------------------------------------------------------------------------
+# Firebase Admin
+# ----------------------------------------------------------------------------
 if not firebase_admin._apps:
     firebase_admin.initialize_app()
     logger.info("Firebase Admin SDK initialized")
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # API bodies are tiny
 
-# ============================================================================
-# CORS Configuration - FIXED
-# ============================================================================
-ALLOWED_ORIGINS = [
-    'https://gallery-personal.vercel.app',  # Replace with your actual Vercel URL
-    'http://localhost:5000',
-    'http://localhost:3000',
-    'http://127.0.0.1:5000',
-    'http://127.0.0.1:3000'
-]
-
-CORS(app, 
-     resources={
-         r"/*": {
-             "origins": ALLOWED_ORIGINS,
-             "methods": ["GET", "POST", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "expose_headers": ["Content-Type"],
-             "supports_credentials": True,
-             "max_age": 3600
-         }
-     })
-
-# ============================================================================
-# Environment Variables
-# ============================================================================
+# ----------------------------------------------------------------------------
+# Config
+# ----------------------------------------------------------------------------
 BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
 SIGNING_SERVICE_ACCOUNT = os.environ.get('SIGNING_SERVICE_ACCOUNT_EMAIL')
+ALLOWED_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get('ALLOWED_EMAILS', '').split(',')
+    if e.strip()
+}
+DEV_MODE = os.environ.get('DEV') == '1'
 
 if not BUCKET_NAME:
-    logger.error("GCS_BUCKET_NAME environment variable not set")
     raise ValueError("GCS_BUCKET_NAME must be set")
+if not ALLOWED_EMAILS:
+    logger.warning("ALLOWED_EMAILS is empty - all users will be rejected")
 
-# Initialize GCS Client
-# Initialize GCS Client using the Service Account Key
-try:
-    KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), 'service-account-key.json')
-    credentials = service_account.Credentials.from_service_account_file(KEY_FILE_PATH)
-    storage_client = storage.Client(credentials=credentials)
-    bucket = storage_client.bucket(BUCKET_NAME)
-    logger.info(f"Connected to GCS bucket: {BUCKET_NAME} using service account key.")
-except Exception as e:
-    logger.error(f"Failed to initialize GCS client with key: {str(e)}")
-    raise
+NAME_RE = re.compile(r'^[A-Za-z0-9_-]{1,50}$')
+FILE_RE = re.compile(r'^[A-Za-z0-9._-]{1,100}$')
+ALLOWED_TYPES = {
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4'
+}
+MAX_BYTES = 25 * 1024 * 1024  # 25 MB per upload
 
-# ============================================================================
-# Authentication Decorator - IMPROVED
-# ============================================================================
+# ----------------------------------------------------------------------------
+# CORS
+# ----------------------------------------------------------------------------
+ALLOWED_ORIGINS = ['https://gallery-personal.vercel.app']
+if DEV_MODE:
+    ALLOWED_ORIGINS += [
+        'http://localhost:5000', 'http://localhost:3000',
+        'http://127.0.0.1:5000', 'http://127.0.0.1:3000'
+    ]
+
+CORS(app, resources={r"/*": {
+    "origins": ALLOWED_ORIGINS,
+    "methods": ["GET", "POST", "DELETE", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"],
+    "supports_credentials": False,
+    "max_age": 3600
+}})
+
+# ----------------------------------------------------------------------------
+# Rate limiting (behind Cloud Run, real IP is first in X-Forwarded-For)
+# ----------------------------------------------------------------------------
+def client_ip():
+    fwd = request.headers.get('X-Forwarded-For', '')
+    return fwd.split(',')[0].strip() if fwd else (request.remote_addr or 'unknown')
+
+limiter = Limiter(client_ip, app=app, default_limits=["60 per minute"],
+                  storage_uri="memory://")
+
+# ----------------------------------------------------------------------------
+# GCS client - uses the Cloud Run service account (no key file)
+# ----------------------------------------------------------------------------
+creds, _project = google.auth.default()
+storage_client = storage.Client(credentials=creds)
+bucket = storage_client.bucket(BUCKET_NAME)
+logger.info("Connected to GCS bucket: %s", BUCKET_NAME)
+
+
+def signed_url(blob, **kwargs):
+    """Generate a V4 signed URL via IAM signing (no private key needed)."""
+    if not creds.valid:
+        creds.refresh(Request())
+    sa_email = SIGNING_SERVICE_ACCOUNT or getattr(creds, 'service_account_email', None)
+    return blob.generate_signed_url(
+        version="v4",
+        service_account_email=sa_email,
+        access_token=creds.token,
+        **kwargs
+    )
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+def err(status, error, message):
+    return jsonify({'error': error, 'message': message}), status
+
+
+def server_error(action, exc):
+    logger.error("Error during %s: %s", action, exc)
+    return err(500, 'Server error', 'Something went wrong')
+
+
 def auth_required(f):
-    """
-    A decorator to protect endpoints. It verifies the Firebase ID token
-    from the Authorization header and attaches the user's info to the request.
-    """
     @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Allow OPTIONS requests to pass through for CORS preflight
+    def decorated(*args, **kwargs):
         if request.method == 'OPTIONS':
             return f(*args, **kwargs)
 
-        auth_header = request.headers.get('Authorization')
-        
-        if not auth_header or not auth_header.startswith('Bearer '):
-            logger.warning("Missing or invalid Authorization header")
-            return jsonify({
-                'error': 'Unauthorized',
-                'message': 'Missing or invalid Authorization header'
-            }), 401
-        
-        id_token = auth_header.split('Bearer ')[1]
-        
+        header = request.headers.get('Authorization', '')
+        if not header.startswith('Bearer '):
+            return err(401, 'Unauthorized', 'Missing or invalid Authorization header')
+
+        token = header[len('Bearer '):].strip()
         try:
-            decoded_token = auth.verify_id_token(id_token)
-            g.user = decoded_token
-            logger.info(f"User authenticated: {decoded_token.get('email')} (uid: {decoded_token['uid']})")
+            decoded = auth.verify_id_token(token, check_revoked=True)
         except auth.ExpiredIdTokenError:
-            logger.warning("Expired token attempt")
-            return jsonify({
-                'error': 'Token expired',
-                'message': 'Your session has expired. Please sign in again.'
-            }), 403
-        except auth.InvalidIdTokenError as e:
-            logger.warning(f"Invalid token: {str(e)}")
-            return jsonify({
-                'error': 'Invalid token',
-                'message': 'Authentication token is invalid'
-            }), 403
+            return err(401, 'Token expired', 'Please sign in again')
+        except (auth.InvalidIdTokenError, auth.RevokedIdTokenError,
+                auth.UserDisabledError, ValueError):
+            return err(401, 'Invalid token', 'Authentication token is invalid')
         except Exception as e:
-            logger.error(f"Token verification error: {str(e)}")
-            return jsonify({
-                'error': 'Authentication failed',
-                'message': str(e)
-            }), 403
-            
+            logger.error("Token verification error: %s", e)
+            return err(401, 'Authentication failed', 'Authentication failed')
+
+        email = (decoded.get('email') or '').lower()
+        if not decoded.get('email_verified') or email not in ALLOWED_EMAILS:
+            logger.warning("Rejected non-allowlisted uid: %s", decoded.get('uid'))
+            return err(403, 'Forbidden', 'Access denied')
+
+        g.user = decoded
         return f(*args, **kwargs)
-    return decorated_function
+    return decorated
 
-# ============================================================================
-# Health Check Endpoint - NEW
-# ============================================================================
+# ----------------------------------------------------------------------------
+# Routes
+# ----------------------------------------------------------------------------
 @app.route('/health', methods=['GET'])
+@limiter.exempt
 def health_check():
-    """Health check endpoint for monitoring"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'photo-gallery-backend',
-        'timestamp': datetime.datetime.utcnow().isoformat()
-    }), 200
+    return jsonify({'status': 'healthy'}), 200
 
-# ============================================================================
-# Get Folders Endpoint - IMPROVED
-# ============================================================================
+
 @app.route('/get-folders', methods=['GET', 'OPTIONS'])
 @auth_required
 def get_folders():
-    """Lists all albums for the authenticated user."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        user_prefix = f"{user_id}/"
-        
-        logger.info(f"Fetching folders for user: {user_email}")
-        
+        user_prefix = f"{g.user['uid']}/"
         blobs = storage_client.list_blobs(BUCKET_NAME, prefix=user_prefix, delimiter='/')
-        list(blobs)  # Consume iterator to populate prefixes
-        
-        folders = [
-            prefix.replace(user_prefix, '', 1).rstrip('/')
-            for prefix in blobs.prefixes
-        ]
-        
-        logger.info(f"Found {len(folders)} folders for user {user_email}")
+        list(blobs)  # consume iterator to populate prefixes
+        folders = [p.replace(user_prefix, '', 1).rstrip('/') for p in blobs.prefixes]
         return jsonify({'folders': sorted(folders)}), 200
-        
     except Exception as e:
-        logger.error(f"Error fetching folders: {str(e)}")
-        return jsonify({
-            'error': 'Failed to fetch folders',
-            'message': str(e)
-        }), 500
-# ============================================================================
-# Get Photos Endpoint - IMPROVED
-# ============================================================================
+        return server_error('get-folders', e)
+
+
 @app.route('/get-photos', methods=['GET', 'OPTIONS'])
 @auth_required
 def get_photos():
-    """Lists all photos within a specific album for the authenticated user."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        folder_name = request.args.get('folder')
-        
-        if not folder_name:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Folder name query parameter is required'
-            }), 400
+        folder = request.args.get('folder', '').strip().rstrip('/')
+        if not NAME_RE.fullmatch(folder):
+            return err(400, 'Bad request', 'Invalid folder name')
 
-        full_prefix = f"{user_id}/{folder_name}/" # Ensure trailing slash
-        logger.info(f"Fetching photos from {full_prefix} for user {user_email}")
-        
-        photos_data = []
-        blobs = bucket.list_blobs(prefix=full_prefix)
-
-        for blob in blobs:
-            # Skip folder markers
+        prefix = f"{g.user['uid']}/{folder}/"
+        photos = []
+        for blob in bucket.list_blobs(prefix=prefix):
             if blob.name.endswith('/') or blob.name.endswith('.gkeep'):
                 continue
-            
-            # Only include images and videos
-            if blob.content_type and (
-                blob.content_type.startswith('image/') or 
-                blob.content_type.startswith('video/')
-            ):
-                try:
-                    # This is the corrected way to generate a signed URL in Cloud Run
-                    url = blob.generate_signed_url(
-                        version="v4",
-                        expiration=datetime.timedelta(hours=1),
-                        method="GET"
-                    )
-                    
-                    photos_data.append({
-                        'filename': blob.name,
-                        'name': os.path.basename(blob.name),
-                        'url': url,
-                        'type': blob.content_type,
-                        'size': blob.size,
-                        'updated': blob.updated.isoformat() if blob.updated else None
-                    })
-                except Exception as e:
-                    logger.error(f"Failed to generate signed URL for {blob.name}: {str(e)}")
-                    continue
-        
-        logger.info(f"Found {len(photos_data)} photos in folder {folder_name}")
-        return jsonify({'photos': photos_data}), 200
-        
+            ctype = blob.content_type or ''
+            if not (ctype.startswith('image/') or ctype.startswith('video/')):
+                continue
+            try:
+                url = signed_url(blob, expiration=datetime.timedelta(minutes=15),
+                                 method="GET")
+            except Exception as e:
+                logger.error("Signed URL failed for %s: %s", blob.name, e)
+                continue
+            photos.append({
+                'filename': blob.name,
+                'name': os.path.basename(blob.name),
+                'url': url,
+                'type': ctype,
+                'size': blob.size,
+                'updated': blob.updated.isoformat() if blob.updated else None
+            })
+        return jsonify({'photos': photos}), 200
     except Exception as e:
-        logger.error(f"Error fetching photos: {str(e)}")
-        return jsonify({
-            'error': 'Failed to fetch photos',
-            'message': str(e)
-        }), 500
+        return server_error('get-photos', e)
 
-# ============================================================================
-# Create Folder Endpoint - IMPROVED
-# ============================================================================
+
 @app.route('/create-folder', methods=['POST', 'OPTIONS'])
 @auth_required
 def create_folder():
-    """Creates a new album (folder) for the authenticated user."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Request body is required'
-            }), 400
-        
-        folder_name = data.get('folder', '').strip()
-        
-        if not folder_name:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Folder name is required'
-            }), 400
-        
-        # Ensure folder name ends with /
-        if not folder_name.endswith('/'):
-            folder_name += '/'
-        
-        # Validate folder name (no special characters except -, _)
-        if not all(c.isalnum() or c in ['-', '_', '/'] for c in folder_name):
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Folder name contains invalid characters'
-            }), 400
-        
-        full_path = f"{user_id}/{folder_name}.gkeep"
-        blob = bucket.blob(full_path)
-        
-        # Check if folder already exists
+        data = request.get_json(silent=True) or {}
+        folder = str(data.get('folder', '')).strip().rstrip('/')
+        if not NAME_RE.fullmatch(folder):
+            return err(400, 'Bad request',
+                       'Folder name must be 1-50 chars: letters, numbers, - or _')
+
+        blob = bucket.blob(f"{g.user['uid']}/{folder}/.gkeep")
         if blob.exists():
-            return jsonify({
-                'error': 'Conflict',
-                'message': f'Folder {folder_name.rstrip("/")} already exists'
-            }), 409
-        
+            return err(409, 'Conflict', f'Folder {folder} already exists')
+
         blob.upload_from_string('', content_type='application/octet-stream')
-        logger.info(f"Folder created: {full_path} by user {user_email}")
-        
-        return jsonify({
-            'message': f'Folder {folder_name.rstrip("/")} created successfully',
-            'folder': folder_name.rstrip('/')
-        }), 201
-        
+        logger.info("Folder created: %s (uid %s)", folder, g.user['uid'])
+        return jsonify({'message': f'Folder {folder} created successfully',
+                        'folder': folder}), 201
     except Exception as e:
-        logger.error(f"Error creating folder: {str(e)}")
-        return jsonify({
-            'error': 'Failed to create folder',
-            'message': str(e)
-        }), 500
-# ============================================================================
-# Generate Upload URL Endpoint - IMPROVED
-# ============================================================================
+        return server_error('create-folder', e)
+
+
 @app.route('/generate-upload-url', methods=['POST', 'OPTIONS'])
 @auth_required
+@limiter.limit("30 per minute")
 def generate_upload_url():
-    """Generates a secure, temporary URL to upload a photo to a specific album."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Request body is required'
-            }), 400
-        
-        if not all(k in data for k in ['filename', 'folder']):
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Filename and folder are required'
-            }), 400
+        data = request.get_json(silent=True) or {}
+        folder = str(data.get('folder', '')).strip().rstrip('/')
+        filename = str(data.get('filename', '')).strip()
+        content_type = str(data.get('contentType', '')).strip().lower()
 
-        filename = data['filename']
-        folder = data['folder'].rstrip('/')
-        content_type = data.get('contentType', 'application/octet-stream')
-        
-        full_path = f"{user_id}/{folder}/{filename}"
+        if not NAME_RE.fullmatch(folder):
+            return err(400, 'Bad request', 'Invalid folder name')
+        if not FILE_RE.fullmatch(filename) or '..' in filename:
+            return err(400, 'Bad request', 'Invalid filename')
+        if content_type not in ALLOWED_TYPES:
+            return err(400, 'Bad request', 'File type not allowed')
+
+        full_path = f"{g.user['uid']}/{folder}/{filename}"
         blob = bucket.blob(full_path)
 
-        url = blob.generate_signed_url(
-            version="v4",
+        url = signed_url(
+            blob,
             expiration=datetime.timedelta(minutes=15),
             method="PUT",
-            content_type=content_type
+            content_type=content_type,
+            headers={"x-goog-content-length-range": f"0,{MAX_BYTES}"}
         )
-        
-        logger.info(f"Upload URL generated for {full_path} by user {user_email}")
-        
-        return jsonify({
-            'url': url,
-            'path': full_path,
-            'expiresIn': 900  # 15 minutes in seconds
-        }), 200
-        
+        return jsonify({'url': url, 'path': full_path, 'expiresIn': 900,
+                        'maxBytes': MAX_BYTES}), 200
     except Exception as e:
-        logger.error(f"Error generating upload URL: {str(e)}")
-        return jsonify({
-            'error': 'Failed to generate upload URL',
-            'message': str(e)
-        }), 500
-    
-# ============================================================================
-# Delete Photo Endpoint - IMPROVED
-# ============================================================================
+        return server_error('generate-upload-url', e)
+
+
 @app.route('/delete-photo', methods=['DELETE', 'OPTIONS'])
 @auth_required
 def delete_photo():
-    """Deletes a photo, ensuring it belongs to the authenticated user."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Request body is required'
-            }), 400
-        
-        filename = data.get('filename')  # e.g., "uid/album/photo.jpg"
-        
+        data = request.get_json(silent=True) or {}
+        filename = str(data.get('filename', '')).strip()
         if not filename:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Filename is required'
-            }), 400
-        
-        # Security check: Ensure the file being deleted belongs to the user
-        if not filename.startswith(user_id + '/'):
-            logger.warning(f"User {user_email} attempted to delete file not owned: {filename}")
-            return jsonify({
-                'error': 'Forbidden',
-                'message': 'You can only delete your own photos'
-            }), 403
-        
-        blob = bucket.blob(filename)
-        
-        if not blob.exists():
-            return jsonify({
-                'error': 'Not found',
-                'message': 'File not found'
-            }), 404
-        
-        blob.delete()
-        logger.info(f"File deleted: {filename} by user {user_email}")
-        
-        return jsonify({
-            'message': f'File deleted successfully',
-            'filename': filename
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error deleting photo: {str(e)}")
-        return jsonify({
-            'error': 'Failed to delete photo',
-            'message': str(e)
-        }), 500
+            return err(400, 'Bad request', 'Filename is required')
 
-# ============================================================================
-# Delete Folder Endpoint - NEW (BONUS)
-# ============================================================================
+        uid = g.user['uid']
+        parts = filename.split('/')
+        # Must be exactly: uid / folder / file, with no traversal tricks
+        if (len(parts) != 3 or parts[0] != uid or '..' in parts
+                or not NAME_RE.fullmatch(parts[1]) or not FILE_RE.fullmatch(parts[2])):
+            logger.warning("Blocked delete attempt by uid %s: %s", uid, filename)
+            return err(403, 'Forbidden', 'You can only delete your own photos')
+
+        blob = bucket.blob(filename)
+        if not blob.exists():
+            return err(404, 'Not found', 'File not found')
+
+        blob.delete()
+        logger.info("File deleted: %s", filename)
+        return jsonify({'message': 'File deleted successfully',
+                        'filename': filename}), 200
+    except Exception as e:
+        return server_error('delete-photo', e)
+
+
 @app.route('/delete-folder', methods=['DELETE', 'OPTIONS'])
 @auth_required
 def delete_folder():
-    """Deletes an entire folder and all its contents."""
     if request.method == 'OPTIONS':
         return '', 204
-    
     try:
-        user_id = g.user['uid']
-        user_email = g.user.get('email', 'unknown')
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Request body is required'
-            }), 400
-        
-        folder_name = data.get('folder', '').strip()
-        
-        if not folder_name:
-            return jsonify({
-                'error': 'Bad request',
-                'message': 'Folder name is required'
-            }), 400
-        
-        # Ensure proper prefix format
-        folder_prefix = f"{user_id}/{folder_name.rstrip('/')}/"
-        
-        # List all blobs in the folder
-        blobs = list(bucket.list_blobs(prefix=folder_prefix))
-        
+        data = request.get_json(silent=True) or {}
+        folder = str(data.get('folder', '')).strip().rstrip('/')
+        if not NAME_RE.fullmatch(folder):
+            return err(400, 'Bad request', 'Invalid folder name')
+
+        prefix = f"{g.user['uid']}/{folder}/"
+        blobs = list(bucket.list_blobs(prefix=prefix))
         if not blobs:
-            return jsonify({
-                'error': 'Not found',
-                'message': 'Folder not found or already empty'
-            }), 404
-        
-        # Delete all blobs
-        deleted_count = 0
+            return err(404, 'Not found', 'Folder not found or already empty')
+
         for blob in blobs:
             blob.delete()
-            deleted_count += 1
-        
-        logger.info(f"Folder deleted: {folder_prefix} ({deleted_count} files) by user {user_email}")
-        
-        return jsonify({
-            'message': f'Folder deleted successfully',
-            'folder': folder_name,
-            'filesDeleted': deleted_count
-        }), 200
-        
+        logger.info("Folder deleted: %s (%d files)", prefix, len(blobs))
+        return jsonify({'message': 'Folder deleted successfully',
+                        'folder': folder, 'filesDeleted': len(blobs)}), 200
     except Exception as e:
-        logger.error(f"Error deleting folder: {str(e)}")
-        return jsonify({
-            'error': 'Failed to delete folder',
-            'message': str(e)
-        }), 500
+        return server_error('delete-folder', e)
 
-# ============================================================================
-# Error Handlers - NEW
-# ============================================================================
+# ----------------------------------------------------------------------------
+# Error handlers
+# ----------------------------------------------------------------------------
 @app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'error': 'Not found',
-        'message': 'The requested resource was not found'
-    }), 404
+def not_found(_):
+    return err(404, 'Not found', 'The requested resource was not found')
 
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"Internal server error: {str(error)}")
-    return jsonify({
-        'error': 'Internal server error',
-        'message': 'An unexpected error occurred'
-    }), 500
 
 @app.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({
-        'error': 'Method not allowed',
-        'message': 'The HTTP method is not allowed for this endpoint'
-    }), 405
+def method_not_allowed(_):
+    return err(405, 'Method not allowed', 'The HTTP method is not allowed')
 
-# ============================================================================
-# Main
-# ============================================================================
+
+@app.errorhandler(413)
+def too_large(_):
+    return err(413, 'Too large', 'Request body too large')
+
+
+@app.errorhandler(429)
+def rate_limited(_):
+    return err(429, 'Too many requests', 'Slow down and try again shortly')
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error("Internal server error: %s", e)
+    return err(500, 'Server error', 'An unexpected error occurred')
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    logger.info(f"Starting server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)

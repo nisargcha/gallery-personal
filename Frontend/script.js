@@ -225,7 +225,14 @@ const generateUploadUrl = (filename, folder, contentType) => apiFetch('/generate
 const deletePhoto = (filename) => apiFetch('/delete-photo', { method: 'DELETE', body: JSON.stringify({ filename }) });
 
 async function uploadFileToSignedUrl(signedUrl, file, contentType) {
-    const response = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+    const response = await fetch(signedUrl, {
+  method: 'PUT',
+  headers: {
+    'Content-Type': contentType,
+    'x-goog-content-length-range': '0,26214400'
+  },
+  body: file
+});
     if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
 }
 

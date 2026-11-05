@@ -3,7 +3,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/photo-gallery-backend:$COMMIT_SHA', '.']
 
-  # 2. Push the image to Google Container Registry (GCR)
+  # 2. Push the image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/photo-gallery-backend:$COMMIT_SHA']
 
@@ -13,14 +13,16 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'photo-gallery-service' # <-- IMPORTANT: Must match your Cloud Run service name
+      - 'photo-gallery-service'
       - '--image'
       - 'gcr.io/$PROJECT_ID/photo-gallery-backend:$COMMIT_SHA'
       - '--region'
-      - 'us-east1' # <-- IMPORTANT: Must match your Cloud Run region
+      - 'us-east1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--max-instances'
+      - '3'
 
 images:
   - 'gcr.io/$PROJECT_ID/photo-gallery-backend:$COMMIT_SHA'
