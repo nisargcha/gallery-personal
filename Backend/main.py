@@ -129,7 +129,7 @@ def auth_required(f):
 
         token = header[len('Bearer '):].strip()
         try:
-            decoded = auth.verify_id_token(token, check_revoked=True)
+            decoded = auth.verify_id_token(token, check_revoked=False)
         except auth.ExpiredIdTokenError:
             return err(401, 'Token expired', 'Please sign in again')
         except (auth.InvalidIdTokenError, auth.RevokedIdTokenError,
